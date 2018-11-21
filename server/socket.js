@@ -4,32 +4,75 @@ class Socket {
 	constructor(socket) {
 		this.io = socket;
 		this.users_online = [];
+		this.status = '';
 	}
 
 	ioConfig() {
 
 		this.io.use((socket, next)=> {
 			socket['id'] = socket.handshake.query.userId;
-			socket['myfriends'] = socket.handshake.query.mylist.split(',');
+
+			if(socket.handshake.query.mylist != '' || socket.handshake.query.mylist != 'undefined') {
+				socket['myfriends'] = socket.handshake.query.mylist.split(',');
+			} else {
+				socket['myfriends'] = [];
+			}
+
+			if(socket.handshake.query.username != '' || socket.handshake.query.username != 'undefined') {
+				socket['username'] = socket.handshake.query.username;
+			} else {
+				socket['username'] = '';
+			}
+
+			if(this.status != '') {
+				socket['status'] = this.status;
+			} else {
+				socket['status'] = socket.handshake.query.status;
+				this.status = socket.handshake.query.status;
+			}
 			
 			next();
+		});
+	}
+
+	send_private_message(socket) {
+		socket.on('snd_private_msg', (data)=> {
+			console.log('data', data.to);
+
+			this.io.sockets.connected[socket.id].emit('new_private_message', {
+				username: socket.username,
+				from_uid: data.to,
+				whois: socket.id,
+				message: data.message
+			});
+
+			this.io.sockets.connected[data.to].emit('new_private_message', {
+				username: socket.username,
+				from_uid: socket.id,
+				whois: socket.id,
+				message: data.message
+			});
 		});
 	}
 
 	change_status(socket) {
 		socket.on('change_status', (data)=> {
 			var my_friends = socket.myfriends;
+			if(my_friends.length > 0) {
 
-			my_friends.forEach(function(user) {
-				var uid = 'user_'.user;
+				this.status = data.status; //assign new value to update status
+				my_friends.forEach((user) =>{
+					var uid = 'user_'+user;
 
-				if(this.users_online.indexOf(uid) != -1) {
-					this.io.sockets.connected[uid].emit('new_status', {
-						status: socket.status,
-						user_id: socket.id
-					});
-				}
-			});
+					if(this.users_online.indexOf(uid) != -1) {
+						this.io.sockets.connected[uid].emit('new_status', {
+							status: data.status,
+							user_id: socket.id
+						});
+					}
+				});
+
+			}
 		});
 	}
 
@@ -50,11 +93,21 @@ class Socket {
 			}
 
 			this.io.sockets.connected[socket.id].emit('is_online', {
-				status: status,
+				status: this.status,
 				user_id: data.user_id
 			});
 		});
 
+	}
+
+	broadcast_private(socket) {
+		socket.on('broadcast_private', (data)=> {
+			this.io.sockets.connected[data.to].emit('new_broadcast', {
+				from: socket.id,
+				to: data.to,
+				username:data.username
+			});	
+		});
 	}
 
 	socketConnection() {
@@ -67,10 +120,11 @@ class Socket {
 				socket_id: socket.id
 			});*/
 			
-			this.chk_online_users(socket);
 			this.change_status(socket);
+			this.chk_online_users(socket);
+			this.broadcast_private(socket);
+			this.send_private_message(socket);
 			
-
 			this.socketDisconnection(socket); //disconnect user list
 		});
 	}
@@ -86,12 +140,18 @@ class Socket {
 				var uid = 'user_'+user;
 				if(this.users_online.indexOf(uid) != -1)
 				{
-
 					this.io.sockets.connected[uid].emit('iam_offline', {
 						status: 'offline',
 						user_id: socket.id
 					});
 				}
+				socket.disconnect();
+				var index = this.users_online.indexOf(uid);
+
+				this.users_online.splice(index, 1);
+				Object.keys(this.io.sockets.sockets).splice(index, 1);
+
+
 			});
 		});
 	}

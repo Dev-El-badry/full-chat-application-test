@@ -16,27 +16,19 @@ $(document).ready(function(){
    		mylist.push(uid);
    });
 
+    var my_status = $('.status').filter('input[name="status"]:checked').val();
+
     var socket = io.connect('http://localhost:5000', {
-    	query: 'userId='+'user_'+user_id+'&username='+username+'&mylist='+mylist.join(','),
+    	query: 'userId='+'user_'+user_id+'&username='+username+'&mylist='+mylist.join(',')+'&status='+my_status,
     });
 
-   
+   	var status_emit = ['iam_online', 'iam_offline', 'is_online', 'new_status'];
 
-    socket.on('iam_online', function(data) {
-    	status_user(data.user_id, data.status);
-    });
-
-    socket.on('iam_offline', function(data) {
-    	status_user(data.user_id, data.status);
-    });
-
-    socket.on('is_online', function(data) {
-    	status_user(data.user_id, data.status);
-    });
-
-    socket.on('new_status', function(data) {
-    	status_user(data.user_id, data.status);
-    });
+   	$.each(status_emit, function(k,v){
+   		socket.on(v, function(data) {
+    		status_user(data.user_id, data.status);
+    	});
+   	});
 
     socket.on('connect', function(data) {
     	$('.user').each(function() {
@@ -73,37 +65,80 @@ $(document).ready(function(){
 		return false;
 	});
 
+	function private_chatbox(userID, username) {
+		if ($.inArray(userID, arr) != -1)
+		{
+	     	arr.splice($.inArray(userID, arr), 1);
+	    }
+
+		arr.unshift(userID);
+		chatPopup =  '<div class="msg_box box'+userID+'" style="right:270px" rel="'+ userID+'">'+
+						'<div class="msg_head">'+username +
+						'<div class="close">x</div> </div>'+
+						'<div class="msg_wrap"> <div class="msg_body">	<div class="msg_push"></div> </div>'+
+						'<div class="msg_footer"><span class="broadcast"></span><textarea class="msg_input" rows="4"></textarea></div> 	</div> 	</div>' ;
+
+	    $("body").append(  chatPopup  );
+		displayChatBox();
+	}
+
 	$(document).on('click', '#sidebar-user-box', function() {
 
-	 var userID = $(this).attr("class");
+	 var userID = $(this).attr("uid");
 	 var username = $(this).children().text() ;
+	 private_chatbox('user_'+userID, username);
+	
+	});
 
-	 if ($.inArray(userID, arr) != -1)
-	 {
-      arr.splice($.inArray(userID, arr), 1);
-     }
+	socket.on('new_private_message', function(data) {
+		if(!$('.msg_box').hasClass('box'+data.from_uid)) {
+			private_chatbox(data.from_uid, data.username);
+		}
 
-	 arr.unshift(userID);
-	 chatPopup =  '<div class="msg_box" style="right:270px" rel="'+ userID+'">'+
-					'<div class="msg_head">'+username +
-					'<div class="close">x</div> </div>'+
-					'<div class="msg_wrap"> <div class="msg_body">	<div class="msg_push"></div> </div>'+
-					'<div class="msg_footer"><textarea class="msg_input" rows="4"></textarea></div> 	</div> 	</div>' ;
+		$('.box'+data.from_uid+' .broadcast').html('');
 
-     $("body").append(  chatPopup  );
-	 displayChatBox();
+		if(data.whois == 'user_'+user_id) {
+			var class_text = 'msg-left';
+		} else {
+			var class_text = 'msg-right';
+		}
+
+		$('<div class="'+class_text+'">'+data.username+': '+data.message+'</div>').insertBefore('[rel="'+data.from_uid+'"] .msg_push');
+		$('.msg_body').scrollTop($('.msg_body')[0].scrollHeight);
+	});
+
+	socket.on('new_broadcast', function(data) {
+		$('.box'+data.from+' .broadcast').html(''+data.username+' is typing now ....');
+
+		setTimeout(function() {
+        		$('.box'+data.from+' .broadcast').html('');
+        	}, 5000);
 	});
 
 
 	$(document).on('keypress', 'textarea' , function(e) {
+		var chatbox = $(this).parents().parents().parents().attr("rel") ;
         if (e.keyCode == 13 ) {
             var msg = $(this).val();
 			$(this).val('');
 			if(msg.trim().length != 0){
-			var chatbox = $(this).parents().parents().parents().attr("rel") ;
-			$('<div class="msg-right">'+msg+'</div>').insertBefore('[rel="'+chatbox+'"] .msg_push');
-			$('.msg_body').scrollTop($('.msg_body')[0].scrollHeight);
+
+
+				socket.emit('snd_private_msg', {
+					to: chatbox,
+					message: msg
+				});
+
+				//$('<div class="msg-right">'+username+': '+msg+'</div>').insertBefore('[rel="'+chatbox+'"] .msg_push');
+				//$('.msg_body').scrollTop($('.msg_body')[0].scrollHeight);
 			}
+        } else {
+        	socket.emit('broadcast_private', {
+        		to: chatbox,
+        		username: username
+        	});
+
+        	
         }
     });
 
